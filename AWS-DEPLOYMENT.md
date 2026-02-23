@@ -60,7 +60,7 @@ aws configure
 You will be prompted for:
 - **AWS Access Key ID** (from IAM Dashboard)
 - **AWS Secret Access Key**
-- **Default region** (e.g., `us-east-1`)
+- **Default region** (e.g., `us-east-2`)
 - **Output format** (`json`)
 
 ### 1.2 Install eksctl
@@ -86,18 +86,18 @@ eksctl version
 ```bash
 eksctl create cluster \
   --name patient-management-cluster \
-  --region us-east-1 \
+  --region us-east-2 \
   --nodegroup-name worker-nodes \
-  --node-type t3.medium \
-  --nodes 3 \
-  --nodes-min 2 \
-  --nodes-max 4 \
+  --node-type t3.small \
+  --nodes 1 \
+  --nodes-min 1 \
+  --nodes-max 2 \
   --managed
 ```
 
 This provisions:
 - A managed EKS control plane
-- 3 `t3.medium` EC2 worker nodes with autoscaling (2-4 nodes)
+- 1 `t3.small` EC2 worker node with autoscaling (1-2 nodes)
 - VPC, subnets, and security groups
 
 > Cluster creation takes approximately 15-20 minutes.
@@ -106,7 +106,7 @@ This provisions:
 
 ```bash
 # Update kubeconfig
-aws eks update-kubeconfig --name patient-management-cluster --region us-east-1
+aws eks update-kubeconfig --name patient-management-cluster --region us-east-2
 
 # Verify connectivity
 kubectl get nodes
@@ -122,19 +122,19 @@ Expected output: 3 nodes in `Ready` state.
 
 ```bash
 # Create a repository for each microservice
-aws ecr create-repository --repository-name patient-service --region us-east-1
-aws ecr create-repository --repository-name billing-service --region us-east-1
-aws ecr create-repository --repository-name analytics-service --region us-east-1
-aws ecr create-repository --repository-name auth-service --region us-east-1
-aws ecr create-repository --repository-name api-gateway --region us-east-1
+aws ecr create-repository --repository-name patient-service --region us-east-2
+aws ecr create-repository --repository-name billing-service --region us-east-2
+aws ecr create-repository --repository-name analytics-service --region us-east-2
+aws ecr create-repository --repository-name auth-service --region us-east-2
+aws ecr create-repository --repository-name api-gateway --region us-east-2
 ```
 
 ### 3.2 Authenticate Docker to ECR
 
 ```bash
 # Replace <ACCOUNT_ID> with your 12-digit AWS account ID
-aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
+aws ecr get-login-password --region us-east-2 | \
+  docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com
 ```
 
 ### 3.3 Build Docker Images
@@ -161,7 +161,7 @@ docker build -t api-gateway -f api-gateway/Dockerfile .
 ```bash
 # Set your account ID as a variable
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export AWS_REGION=us-east-1
+export AWS_REGION=us-east-2
 export ECR_REGISTRY=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
 # Tag and push each image
@@ -185,7 +185,7 @@ Replace `image: <service-name>:latest` with your ECR path in each deployment YAM
 #   image: patient-service:latest
 #   imagePullPolicy: IfNotPresent
 # To:
-#   image: <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/patient-service:latest
+#   image: <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/patient-service:latest
 #   imagePullPolicy: Always
 ```
 
@@ -208,14 +208,14 @@ StatefulSets (PostgreSQL, Kafka) require EBS-backed persistent volumes.
 # Create an IAM OIDC provider for the cluster
 eksctl utils associate-iam-oidc-provider \
   --cluster patient-management-cluster \
-  --region us-east-1 \
+  --region us-east-2 \
   --approve
 
 # Install the EBS CSI driver addon
 eksctl create addon \
   --name aws-ebs-csi-driver \
   --cluster patient-management-cluster \
-  --region us-east-1 \
+  --region us-east-2 \
   --service-account-role-arn arn:aws:iam::${AWS_ACCOUNT_ID}:role/AmazonEKS_EBS_CSI_DriverRole \
   --force
 ```
@@ -374,7 +374,7 @@ To avoid ongoing AWS charges, tear down all resources:
 kubectl delete namespace patient-management
 
 # Delete the EKS cluster (this also removes worker nodes)
-eksctl delete cluster --name patient-management-cluster --region us-east-1
+eksctl delete cluster --name patient-management-cluster --region us-east-2
 ```
 
 ---
@@ -384,11 +384,11 @@ eksctl delete cluster --name patient-management-cluster --region us-east-1
 | Resource | Type | Estimated Monthly Cost |
 |---|---|---|
 | EKS Control Plane | Managed | $73/month |
-| 3x t3.medium Nodes | EC2 | ~$100/month |
+| 1x t3.small Node | EC2 | ~$15/month |
 | 3x EBS Volumes (10Gi) | gp3 | ~$2.50/month |
 | ECR Storage | Per GB | ~$1/month |
 | Load Balancer | ALB | ~$22/month |
-| **Total** | | **~$199/month** |
+| **Total** | | **~$114/month** |
 
 > Use `eksctl delete cluster` immediately after presentations to avoid charges.
 
